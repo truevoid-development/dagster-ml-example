@@ -1,4 +1,4 @@
-FROM docker.io/maven:3 as maven
+FROM docker.io/maven:3 AS maven
 
 COPY pom.xml .
 

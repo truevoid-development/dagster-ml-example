@@ -1,0 +1,6 @@
+<configuration>
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>s3a://storage/</value>
+  </property>
+</configuration>

@@ -3,7 +3,8 @@ name: backend
 pipelines:
   dev:
     run: |-
-      run_dependencies --all
+      run_dependency_pipelines --all
+      ensure_pull_secrets --all
       build_images --all -t ${DEVSPACE_RANDOM}
       create_deployments postgres hive-metastore trino datanode namenode dev
       start_dev --all
@@ -11,10 +12,13 @@ pipelines:
 images:
   hive-metastore:
     image: truevoid/hive-metastore
-    dockerfile: hive-metastore.Dockerfile
+    dockerfile: hive-metastore/Dockerfile
+    context: hive-metastore
+
   python:
     image: truevoid/python
-    dockerfile: python.Dockerfile
+    dockerfile: python-hdfs/Dockerfile
+    context: python-hdfs
 
 deployments:
   minio:
@@ -30,6 +34,9 @@ deployments:
           enabled: true
         pdb:
           create: false
+        provisioning:
+          nodeSelector:
+            kubernetes.io/hostname: node-dedicated-0
 
   postgres:
     helm:
@@ -50,10 +57,14 @@ deployments:
           resourcePreset: medium
           persistence:
             enabled: false
+          nodeSelector:
+            kubernetes.io/hostname: node-dedicated-0
 
   hive-metastore:
     helm:
       values:
+        nodeSelector:
+          kubernetes.io/hostname: node-dedicated-0
         containers:
         - image: truevoid/hive-metastore:${DEVSPACE_RANDOM}
           name: hive-metastore
@@ -77,6 +88,8 @@ deployments:
   datanode:
     helm:
       values:
+        nodeSelector:
+          kubernetes.io/hostname: node-dedicated-0
         containers:
         - image: docker.io/apache/hadoop:3
           name: datanode
@@ -104,6 +117,8 @@ deployments:
   namenode:
     helm:
       values:
+        nodeSelector:
+          kubernetes.io/hostname: node-dedicated-0
         containers:
         - image: docker.io/apache/hadoop:3
           name: namenode
@@ -136,6 +151,10 @@ deployments:
         name: trino
         repo: https://trinodb.github.io/charts/
       values:
+        coordinator: &config
+          nodeSelector:
+            kubernetes.io/hostname: node-dedicated-0
+        worker: *config
         additionalCatalogs:
           iceberg: |-
             connector.name=iceberg
@@ -159,20 +178,34 @@ deployments:
         name: trino
         repo: https://trinodb.github.io/charts/
       values:
+        coordinator: &config
+          nodeSelector:
+            kubernetes.io/hostname: node-dedicated-0
+          additionalJVMConfig:
+          - -DHADOOP_USER_NAME=hadoop
+        worker: *config
         additionalCatalogs:
           iceberg: |-
             connector.name=iceberg
             iceberg.catalog.type=hive_metastore
             hive.metastore.uri=thrift://hive-metastore:9083
             fs.hadoop.enabled=true
+        env:
+        - name: HADOOP_USER_NAME
+          value: hadoop
 
   dev:
     helm:
       values:
+        nodeSelector:
+          kubernetes.io/hostname: node-dedicated-0
         containers:
         - image: truevoid/python
           name: python
           command: [bash]
+          env:
+          - name: HADOOP_USER_NAME
+            value: hadoop
 
 dev:
   python:
