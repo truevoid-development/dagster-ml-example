@@ -1,0 +1,5 @@
+.dockerignore
+devspace.yaml
+Session.vim
+.*
+trino-cli

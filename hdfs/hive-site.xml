@@ -1,0 +1,6 @@
+<configuration>
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>/data</value>
+  </property>
+</configuration>

@@ -1,0 +1,183 @@
+version: v2beta1
+name: backend
+pipelines:
+  dev:
+    run: |-
+      run_dependencies --all
+      build_images --all -t ${DEVSPACE_RANDOM}
+      create_deployments postgres hive-metastore trino datanode namenode dev
+      start_dev --all
+
+images:
+  hive-metastore:
+    image: truevoid/hive-metastore
+    dockerfile: hive-metastore.Dockerfile
+  python:
+    image: truevoid/python
+    dockerfile: python.Dockerfile
+
+deployments:
+  minio:
+    helm:
+      chart:
+        name: minio
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        auth:
+          rootPassword: miniopass
+        defaultBuckets: storage
+        persistence:
+          enabled: true
+        pdb:
+          create: false
+
+  postgres:
+    helm:
+      chart:
+        name: postgresql
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        global:
+          postgresql:
+            auth:
+              postgresPassword: hive
+              username: hive
+              password: hive
+              database: hive
+        primary:
+          livenessProbe:
+            enabled: false
+          resourcePreset: medium
+          persistence:
+            enabled: false
+
+  hive-metastore:
+    helm:
+      values:
+        containers:
+        - image: truevoid/hive-metastore:${DEVSPACE_RANDOM}
+          name: hive-metastore
+          env:
+          - name: SERVICE_NAME
+            value: metastore
+          - name: DB_DRIVER
+            value: postgres
+          - name: SERVICE_OPTS
+            value: >-
+              -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+              -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres-postgresql-hl:5432/hive
+              -Djavax.jdo.option.ConnectionUserName=hive
+              -Djavax.jdo.option.ConnectionPassword=hive
+        service:
+          name: hive-metastore
+          ports:
+          - containerPort: 9083
+            port: 9083
+
+  datanode:
+    helm:
+      values:
+        containers:
+        - image: docker.io/apache/hadoop:3
+          name: datanode
+          command: [/opt/starter.sh, hdfs, datanode]
+          env:
+          - name: ENSURE_NAMENODE_DIR
+            value: /tmp/hadoop-hadoop/dfs/name
+          - name: CORE-SITE.XML_fs.default.name
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_fs.defaultFS
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_dfs.permissions
+            value: "false"
+          - name: CORE-SITE.XML_dfs.namenode.rpc-address
+            value: namenode:8020
+          - name: CORE-SITE.XML_dfs.replication
+            value: "1"
+        service:
+          name: datanode
+          clusterIP: None
+          ports:
+          - containerPort: 9864
+            port: 9864
+
+  namenode:
+    helm:
+      values:
+        containers:
+        - image: docker.io/apache/hadoop:3
+          name: namenode
+          command: [/opt/starter.sh, hdfs, namenode]
+          env:
+          - name: ENSURE_NAMENODE_DIR
+            value: /tmp/hadoop-hadoop/dfs/name
+          - name: CORE-SITE.XML_fs.default.name
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_fs.defaultFS
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_dfs.permissions
+            value: "false"
+          - name: CORE-SITE.XML_dfs.namenode.rpc-address
+            value: 0.0.0.0:8020
+          - name: CORE-SITE.XML_dfs.replication
+            value: "1"
+        service:
+          name: namenode
+          clusterIP: None
+          ports:
+          - containerPort: 9870
+            port: 9870
+          - containerPort: 8020
+            port: 8020
+
+  trino-minio:
+    helm:
+      chart:
+        name: trino
+        repo: https://trinodb.github.io/charts/
+      values:
+        additionalCatalogs:
+          iceberg: |-
+            connector.name=iceberg
+            iceberg.catalog.type=hive_metastore
+            hive.metastore.uri=thrift://hive-metastore:9083
+            fs.native-s3.enabled=true
+            s3.endpoint=http://minio:9000
+            s3.path-style-access=true
+            s3.region=central-eu
+            s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+            s3.aws-secret-key=${ENV:S3_SECRET_KEY}
+        env:
+        - name: S3_ACCESS_KEY
+          value: admin
+        - name: S3_SECRET_KEY
+          value: miniopass
+
+  trino:
+    helm:
+      chart:
+        name: trino
+        repo: https://trinodb.github.io/charts/
+      values:
+        additionalCatalogs:
+          iceberg: |-
+            connector.name=iceberg
+            iceberg.catalog.type=hive_metastore
+            hive.metastore.uri=thrift://hive-metastore:9083
+            fs.hadoop.enabled=true
+
+  dev:
+    helm:
+      values:
+        containers:
+        - image: truevoid/python
+          name: python
+          command: [bash]
+
+dev:
+  python:
+    container: python
+    imageSelector: truevoid/python
+    terminal:
+      command: bash
+      disableScreen: true
