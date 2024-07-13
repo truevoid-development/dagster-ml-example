@@ -1,10 +1,12 @@
 import fsspec
-
-fs = fsspec.filesystem(protocol="hdfs")
-print(list(fs.walk("/")))
+import IPython
 
 from pyspark import SparkConf
 from pyspark.sql import SparkSession
+
+
+fs = fsspec.filesystem(protocol="hdfs")
+print(list(fs.walk("/")))
 
 with SparkSession.builder.config(
     conf=SparkConf()
@@ -26,3 +28,5 @@ with SparkSession.builder.config(
 ).getOrCreate() as spark:
     table = spark.table("iceberg.test.a")
     print(table.show())
+
+    IPython.embed()
