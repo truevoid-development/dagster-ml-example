@@ -160,7 +160,6 @@ deployments:
         containers:
         - image: truevoid/python:${DEVSPACE_RANDOM}
           name: python
-          command: [bash]
         service:
           name: pyspark
           clusterIP: None
@@ -182,8 +181,31 @@ dev:
       disableScreen: true
 
 commands:
+  initialzie: |-
+    devspace enter -c python -- bash -c "HADOOP_USER_NAME=hadoop hdfs dfs -chown -R 777 /"
+
   trino: |-
     devspace enter -c python trino http://admin@trino:8080
 
   python: |-
     devspace enter -c python -- bash -c ". /root/.bashrc && poetry run python main.py"
+
+  dump: |-
+    kubectl exec postgres-postgresql-0 -- \
+      bash -c "PGPASSWORD=hive pg_dump -Z9 -v -h localhost -U hive -d hive" \
+      > $(date +'%s').tar.gz
+
+  restore: |-
+    helm uninstall --ignore-not-found hive-metastore
+
+    kubectl exec postgres-postgresql-0 -- \
+      bash -c "PGPASSWORD=hive dropdb -h localhost -U hive hive"
+
+    kubectl exec postgres-postgresql-0 -- \
+      bash -c "PGPASSWORD=hive createdb -h localhost -U hive hive"
+
+    kubectl exec -i postgres-postgresql-0 -- \
+      bash -c "PGPASSWORD=hive pg_restore --clean --if-exists -h localhost -d hive -U hive" \
+      <$@
+
+    devspace deploy --skip-build hive-metastore

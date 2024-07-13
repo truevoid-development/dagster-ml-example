@@ -8,5 +8,4 @@ FROM docker.io/apache/hive:4.0.0
 
 COPY --from=maven /build/lib/*.jar /opt/hive/lib
 COPY --chmod=644 hdfs/hive-site.xml /opt/hive/conf/
-COPY --chmod=644 hdfs/core-site.xml /opt/hive/conf/
 COPY --chmod=644 hdfs/core-site.xml /opt/hadoop/etc/hadoop/

@@ -16,14 +16,14 @@ FROM docker.io/python:3.11
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get install -yq openjdk-17-jre-headless
+    && apt-get install -yq openjdk-17-jre-headless less
 
 RUN pip install poetry
 
 WORKDIR /app
 COPY pyproject.toml .
 COPY poetry.lock .
-RUn poetry install --no-root
+RUN poetry install --no-root
 
 COPY --from=docker.io/apache/hadoop:3 /opt/hadoop /opt/hadoop
 COPY --chmod=644 core-site.xml /opt/hadoop/etc/hadoop/
