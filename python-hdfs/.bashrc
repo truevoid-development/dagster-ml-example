@@ -1,3 +1,3 @@
 export CLASSPATH=`hdfs classpath --glob`
 
-hdfs dfs -chmod 777 /
+hdfs dfs -chmod -R 777 /

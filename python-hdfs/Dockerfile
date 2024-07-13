@@ -1,3 +1,9 @@
+FROM docker.io/maven:3 AS maven
+
+COPY pom.xml .
+
+RUN mvn dependency:copy-dependencies -DoutputDirectory=/build/lib
+
 FROM docker.io/curlimages/curl AS curl
 
 ARG TRINO_VERSION=452
@@ -12,8 +18,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -yq openjdk-17-jre-headless
 
-RUN pip install wheel fsspec[hdfs] ipython \
-    && pip install pyiceberg[hive,pyarrow]
+RUN pip install poetry
+
+WORKDIR /app
+COPY pyproject.toml .
+COPY poetry.lock .
+RUn poetry install --no-root
 
 COPY --from=docker.io/apache/hadoop:3 /opt/hadoop /opt/hadoop
 COPY --chmod=644 core-site.xml /opt/hadoop/etc/hadoop/
@@ -25,4 +35,4 @@ ENV PATH=$PATH:$HADOOP_HOME/bin
 
 COPY .bashrc /root/
 
-WORKDIR /app
+COPY --from=maven /build/lib/*.jar /opt/hadoop/lib

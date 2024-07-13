@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "python-iceberg"
+version = "0.1.0"
+description = "Iceberg development dependencies"
+authors = ["Francisco Garcia Florez <francisco@truevoid.dev>"]
+license = "Apache-2.0"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fsspec = { extras = ["hdfs"], version = ">=2023" }
+ipython = "^8.26.0"
+pyiceberg = { extras = ["hive"], version = ">=0.6" }
+pyspark = "^3.5.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+include = ["chunked_upload"]
+exclude = ["build"]

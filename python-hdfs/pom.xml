@@ -5,9 +5,9 @@
   <version>1.0-SNAPSHOT</version>
   <dependencies>
     <dependency>
-      <groupId>io.trino</groupId>
-      <artifactId>trino-cli</artifactId>
-      <version>452</version>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-spark-runtime-3.5_2.12</artifactId>
+      <version>1.5.2</version>
     </dependency>
   </dependencies>
 </project>

@@ -1,12 +1,12 @@
 version: v2beta1
-name: backend
+name: devspace-iceberg
 pipelines:
   dev:
     run: |-
       run_dependency_pipelines --all
       ensure_pull_secrets --all
       build_images --all -t ${DEVSPACE_RANDOM}
-      create_deployments postgres hive-metastore trino datanode namenode dev
+      create_deployments --all
       start_dev --all
 
 images:
@@ -21,23 +21,6 @@ images:
     context: python-hdfs
 
 deployments:
-  minio:
-    helm:
-      chart:
-        name: minio
-        repo: https://charts.bitnami.com/bitnami
-      values:
-        auth:
-          rootPassword: miniopass
-        defaultBuckets: storage
-        persistence:
-          enabled: true
-        pdb:
-          create: false
-        provisioning:
-          nodeSelector:
-            kubernetes.io/hostname: node-dedicated-0
-
   postgres:
     helm:
       chart:
@@ -57,14 +40,13 @@ deployments:
           resourcePreset: medium
           persistence:
             enabled: false
-          nodeSelector:
+          nodeSelector: &node_selector
             kubernetes.io/hostname: node-dedicated-0
 
   hive-metastore:
     helm:
       values:
-        nodeSelector:
-          kubernetes.io/hostname: node-dedicated-0
+        nodeSelector: *node_selector
         containers:
         - image: truevoid/hive-metastore:${DEVSPACE_RANDOM}
           name: hive-metastore
@@ -88,8 +70,7 @@ deployments:
   datanode:
     helm:
       values:
-        nodeSelector:
-          kubernetes.io/hostname: node-dedicated-0
+        nodeSelector: *node_selector
         containers:
         - image: docker.io/apache/hadoop:3
           name: datanode
@@ -117,8 +98,7 @@ deployments:
   namenode:
     helm:
       values:
-        nodeSelector:
-          kubernetes.io/hostname: node-dedicated-0
+        nodeSelector: *node_selector
         containers:
         - image: docker.io/apache/hadoop:3
           name: namenode
@@ -145,32 +125,15 @@ deployments:
           - containerPort: 8020
             port: 8020
 
-  trino-minio:
+  spark:
     helm:
       chart:
-        name: trino
-        repo: https://trinodb.github.io/charts/
+        name: spark
+        repo: https://charts.bitnami.com/bitnami
       values:
-        coordinator: &config
-          nodeSelector:
-            kubernetes.io/hostname: node-dedicated-0
-        worker: *config
-        additionalCatalogs:
-          iceberg: |-
-            connector.name=iceberg
-            iceberg.catalog.type=hive_metastore
-            hive.metastore.uri=thrift://hive-metastore:9083
-            fs.native-s3.enabled=true
-            s3.endpoint=http://minio:9000
-            s3.path-style-access=true
-            s3.region=central-eu
-            s3.aws-access-key=${ENV:S3_ACCESS_KEY}
-            s3.aws-secret-key=${ENV:S3_SECRET_KEY}
-        env:
-        - name: S3_ACCESS_KEY
-          value: admin
-        - name: S3_SECRET_KEY
-          value: miniopass
+        master: &spark_config
+          nodeSelector: *node_selector
+        worker: *spark_config
 
   trino:
     helm:
@@ -178,39 +141,42 @@ deployments:
         name: trino
         repo: https://trinodb.github.io/charts/
       values:
-        coordinator: &config
-          nodeSelector:
-            kubernetes.io/hostname: node-dedicated-0
-          additionalJVMConfig:
-          - -DHADOOP_USER_NAME=hadoop
-        worker: *config
+        coordinator: &trino_config
+          nodeSelector: *node_selector
+          additionalNodeProperties:
+          - HADOOP_USER_NAME=hadoop
+        worker: *trino_config
         additionalCatalogs:
           iceberg: |-
             connector.name=iceberg
             iceberg.catalog.type=hive_metastore
             hive.metastore.uri=thrift://hive-metastore:9083
             fs.hadoop.enabled=true
-        env:
-        - name: HADOOP_USER_NAME
-          value: hadoop
 
   dev:
     helm:
       values:
-        nodeSelector:
-          kubernetes.io/hostname: node-dedicated-0
+        nodeSelector: *node_selector
         containers:
         - image: truevoid/python
           name: python
           command: [bash]
-          env:
-          - name: HADOOP_USER_NAME
-            value: hadoop
+        service:
+          name: pyspark
+          clusterIP: None
+          ports:
+          - containerPort: 10000
+            port: 10000
 
 dev:
   python:
     container: python
     imageSelector: truevoid/python
+    sync:
+    - path: .
+      excludePaths:
+      - "*"
+      - "!python-hdfs/main.py"
     terminal:
       command: bash
       disableScreen: true
