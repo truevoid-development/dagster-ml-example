@@ -158,7 +158,7 @@ deployments:
       values:
         nodeSelector: *node_selector
         containers:
-        - image: truevoid/python
+        - image: truevoid/python:${DEVSPACE_RANDOM}
           name: python
           command: [bash]
         service:
@@ -173,10 +173,17 @@ dev:
     container: python
     imageSelector: truevoid/python
     sync:
-    - path: .
+    - path: python-hdfs:.
       excludePaths:
       - "*"
-      - "!python-hdfs/main.py"
+      - "!main.py"
     terminal:
       command: bash
       disableScreen: true
+
+commands:
+  trino: |-
+    devspace enter -c python trino http://admin@trino:8080
+
+  python: |-
+    devspace enter -c python -- bash -c ". /root/.bashrc && poetry run python main.py"

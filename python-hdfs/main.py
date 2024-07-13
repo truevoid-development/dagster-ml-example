@@ -4,9 +4,10 @@ import IPython
 from pyspark import SparkConf
 from pyspark.sql import SparkSession
 
+from pyiceberg.catalog import load_catalog
 
+catalog = load_catalog("iceberg", uri="thrift://hive-metastore:9083")
 fs = fsspec.filesystem(protocol="hdfs")
-print(list(fs.walk("/")))
 
 with SparkSession.builder.config(
     conf=SparkConf()
@@ -26,7 +27,4 @@ with SparkSession.builder.config(
         }.items()
     )
 ).getOrCreate() as spark:
-    table = spark.table("iceberg.test.a")
-    print(table.show())
-
     IPython.embed()

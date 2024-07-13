@@ -1,3 +1,3 @@
 export CLASSPATH=`hdfs classpath --glob`
 
-hdfs dfs -chmod -R 777 /
+HADOOP_USER_NAME=hadoop hdfs dfs -chmod -R 777 /
