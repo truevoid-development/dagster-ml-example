@@ -180,7 +180,7 @@ deployments:
             iceberg.catalog.type=rest
             iceberg.rest-catalog.uri=http://nessie:19120/iceberg
             iceberg.rest-catalog.prefix=${DEVSPACE_NAMESPACE}
-            iceberg.rest-catalog.location=s3://storage/
+            iceberg.rest-catalog.warehouse=s3a://storage/lakehouse
             fs.native-s3.enabled=true
             s3.endpoint=http://minio:9000
             s3.region=euwest

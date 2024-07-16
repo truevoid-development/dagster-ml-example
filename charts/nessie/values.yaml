@@ -17,7 +17,7 @@ nessie:
       defaultWarehouse: lakehouse
       warehouses:
       - name: lakehouse
-        location: s3://storage/
+        location: s3a://storage/lakehouse
 
     storage:
       s3:
