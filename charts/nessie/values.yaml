@@ -1,0 +1,49 @@
+nessie:
+  nodeSelector:
+    kubernetes.io/hostname: node-dedicated-0
+
+  versionStoreType: JDBC
+
+  jdbc:
+    jdbcUrl: jdbc:postgresql://nessie-postgresql-hl:5432/nessie
+    secret:
+      name: nessie-creds
+      username: postgres_user
+      password: postgres_password
+
+  catalog:
+    enabled: true
+    iceberg:
+      defaultWarehouse: lakehouse
+      warehouses:
+      - name: lakehouse
+        location: s3://storage/
+
+    storage:
+      s3:
+        defaultOptions:
+          region: euwest
+          endpoint: http://minio:9000
+          pathStyleAccess: true
+          accessKeySecret:
+            name: nessie-creds
+            awsAccessKeyId: AWS_ACCESS_KEY_ID
+            awsSecretAccessKey: AWS_SECRET_ACCESS_KEY
+
+postgresql:
+  global:
+    postgresql:
+      auth:
+        postgresPassword: nessie
+        username: nessie
+        password: nessie
+        database: nessie
+
+  primary:
+    livenessProbe:
+      enabled: false
+    resourcePreset: medium
+    persistence:
+      enabled: false
+    nodeSelector: &node_selector
+      kubernetes.io/hostname: node-dedicated-0

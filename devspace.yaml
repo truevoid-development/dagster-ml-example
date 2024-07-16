@@ -67,6 +67,25 @@ deployments:
           - containerPort: 9083
             port: 9083
 
+  minio:
+    helm:
+      chart:
+        name: minio
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        auth:
+          rootPassword: miniopass
+        defaultBuckets: storage
+        persistence:
+          enabled: true
+        pdb:
+          create: false
+
+  nessie:
+    helm:
+      chart:
+        path: charts/nessie
+
   datanode:
     helm:
       values:
@@ -153,13 +172,14 @@ deployments:
             hive.metastore.uri=thrift://hive-metastore:9083
             fs.hadoop.enabled=true
 
-  dev:
+  python:
     helm:
       values:
         nodeSelector: *node_selector
         containers:
-        - image: truevoid/python:${DEVSPACE_RANDOM}
+        - image: truevoid/python
           name: python
+          command: [sleep, infinity]
         service:
           name: pyspark
           clusterIP: None
@@ -169,16 +189,21 @@ deployments:
 
 dev:
   python:
-    container: python
-    imageSelector: truevoid/python
+    labelSelector:
+      app.kubernetes.io/component: python
     sync:
     - path: python-hdfs:.
       excludePaths:
       - "*"
       - "!main.py"
-    terminal:
-      command: bash
-      disableScreen: true
+
+  nessie:
+    labelSelector:
+      app.kubernetes.io/instance: nessie
+      app.kubernetes.io/name: nessie
+
+    ports:
+    - port: "19120"
 
 commands:
   initialzie: |-

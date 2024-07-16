@@ -1,0 +1,16 @@
+apiVersion: v2
+name: nessie
+description: A Helm chart for Nessie
+type: application
+version: 0.1.0
+home: https://projectnessie.org/
+icon: https://raw.githubusercontent.com/projectnessie/nessie/main/site/docs/img/nessie.svg
+sources:
+- https://github.com/projectnessie/nessie
+dependencies:
+- name: nessie
+  version: ~0
+  repository: https://charts.projectnessie.org
+- name: postgresql
+  version: ~15
+  repository: https://charts.bitnami.com/bitnami
