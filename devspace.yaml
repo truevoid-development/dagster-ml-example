@@ -3,10 +3,8 @@ name: devspace-iceberg
 pipelines:
   dev:
     run: |-
-      run_dependency_pipelines --all
-      ensure_pull_secrets --all
       build_images --all -t ${DEVSPACE_RANDOM}
-      create_deployments --all
+      create_deployments minio nessie trino python
       start_dev --all
 
 images:
@@ -73,6 +71,8 @@ deployments:
         name: minio
         repo: https://charts.bitnami.com/bitnami
       values:
+        provisioning:
+          nodeSelector: *node_selector
         auth:
           rootPassword: miniopass
         defaultBuckets: storage
@@ -160,17 +160,33 @@ deployments:
         name: trino
         repo: https://trinodb.github.io/charts/
       values:
+        image:
+          tag: "452"
+        additionalConfigProperties:
+        - http-server.process-forwarded=true
         coordinator: &trino_config
           nodeSelector: *node_selector
           additionalNodeProperties:
           - HADOOP_USER_NAME=hadoop
         worker: *trino_config
         additionalCatalogs:
-          iceberg: |-
+          iceberg-hive: |-
             connector.name=iceberg
             iceberg.catalog.type=hive_metastore
             hive.metastore.uri=thrift://hive-metastore:9083
             fs.hadoop.enabled=true
+          iceberg: |-
+            connector.name=iceberg
+            iceberg.catalog.type=rest
+            iceberg.rest-catalog.uri=http://nessie:19120/iceberg
+            iceberg.rest-catalog.prefix=${DEVSPACE_NAMESPACE}
+            iceberg.rest-catalog.location=s3://storage/
+            fs.native-s3.enabled=true
+            s3.endpoint=http://minio:9000
+            s3.region=euwest
+            s3.aws-access-key=admin
+            s3.aws-secret-key=miniopass
+            s3.path-style-access=true
 
   python:
     helm:
@@ -197,20 +213,40 @@ dev:
       - "*"
       - "!main.py"
 
+  trino:
+    labelSelector:
+      app.kubernetes.io/instance: trino
+      app.kubernetes.io/component: coordinator
+    ports:
+    - port: "8080"
+
   nessie:
     labelSelector:
       app.kubernetes.io/instance: nessie
       app.kubernetes.io/name: nessie
-
     ports:
     - port: "19120"
+
+  minio:
+    labelSelector:
+      app.kubernetes.io/instance: minio
+      app.kubernetes.io/name: minio
+    ports:
+    - port: "9001"
 
 commands:
   initialzie: |-
     devspace enter -c python -- bash -c "HADOOP_USER_NAME=hadoop hdfs dfs -chown -R 777 /"
 
+  nessie-cli: |-
+    kubectl run -it --rm \
+      --image=ghcr.io/projectnessie/nessie-cli:latest nessie-cli -- \
+        --uri=http://nessie:19120/api/v2
+
   trino: |-
-    devspace enter -c python trino http://admin@trino:8080
+    kubectl run -it --rm \
+      --image=trinodb/trino:latest trino-cli -- \
+        trino http://admin@trino:8080 --catalog iceberg
 
   python: |-
     devspace enter -c python -- bash -c ". /root/.bashrc && poetry run python main.py"
