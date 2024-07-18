@@ -4,7 +4,9 @@ pipelines:
   dev:
     run: |-
       build_images --all -t ${DEVSPACE_RANDOM}
-      create_deployments minio nessie trino python
+      create_deployments minio nessie trino python kuberay-operator
+      wait_pod --label-selector app.kubernetes.io/component=kuberay-operator
+      create_deployments ray-cluster
       start_dev --all
 
 images:
@@ -19,52 +21,6 @@ images:
     context: python-hdfs
 
 deployments:
-  postgres:
-    helm:
-      chart:
-        name: postgresql
-        repo: https://charts.bitnami.com/bitnami
-      values:
-        global:
-          postgresql:
-            auth:
-              postgresPassword: hive
-              username: hive
-              password: hive
-              database: hive
-        primary:
-          livenessProbe:
-            enabled: false
-          resourcePreset: medium
-          persistence:
-            enabled: false
-          nodeSelector: &node_selector
-            kubernetes.io/hostname: node-dedicated-0
-
-  hive-metastore:
-    helm:
-      values:
-        nodeSelector: *node_selector
-        containers:
-        - image: truevoid/hive-metastore:${DEVSPACE_RANDOM}
-          name: hive-metastore
-          env:
-          - name: SERVICE_NAME
-            value: metastore
-          - name: DB_DRIVER
-            value: postgres
-          - name: SERVICE_OPTS
-            value: >-
-              -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
-              -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres-postgresql-hl:5432/hive
-              -Djavax.jdo.option.ConnectionUserName=hive
-              -Djavax.jdo.option.ConnectionPassword=hive
-        service:
-          name: hive-metastore
-          ports:
-          - containerPort: 9083
-            port: 9083
-
   minio:
     helm:
       chart:
@@ -72,7 +28,8 @@ deployments:
         repo: https://charts.bitnami.com/bitnami
       values:
         provisioning:
-          nodeSelector: *node_selector
+          nodeSelector: &node_selector
+            kubernetes.io/hostname: node-dedicated-0
         auth:
           rootPassword: miniopass
         defaultBuckets: storage
@@ -86,74 +43,6 @@ deployments:
       chart:
         path: charts/nessie
 
-  datanode:
-    helm:
-      values:
-        nodeSelector: *node_selector
-        containers:
-        - image: docker.io/apache/hadoop:3
-          name: datanode
-          command: [/opt/starter.sh, hdfs, datanode]
-          env:
-          - name: ENSURE_NAMENODE_DIR
-            value: /tmp/hadoop-hadoop/dfs/name
-          - name: CORE-SITE.XML_fs.default.name
-            value: hdfs://namenode
-          - name: CORE-SITE.XML_fs.defaultFS
-            value: hdfs://namenode
-          - name: CORE-SITE.XML_dfs.permissions
-            value: "false"
-          - name: CORE-SITE.XML_dfs.namenode.rpc-address
-            value: namenode:8020
-          - name: CORE-SITE.XML_dfs.replication
-            value: "1"
-        service:
-          name: datanode
-          clusterIP: None
-          ports:
-          - containerPort: 9864
-            port: 9864
-
-  namenode:
-    helm:
-      values:
-        nodeSelector: *node_selector
-        containers:
-        - image: docker.io/apache/hadoop:3
-          name: namenode
-          command: [/opt/starter.sh, hdfs, namenode]
-          env:
-          - name: ENSURE_NAMENODE_DIR
-            value: /tmp/hadoop-hadoop/dfs/name
-          - name: CORE-SITE.XML_fs.default.name
-            value: hdfs://namenode
-          - name: CORE-SITE.XML_fs.defaultFS
-            value: hdfs://namenode
-          - name: CORE-SITE.XML_dfs.permissions
-            value: "false"
-          - name: CORE-SITE.XML_dfs.namenode.rpc-address
-            value: 0.0.0.0:8020
-          - name: CORE-SITE.XML_dfs.replication
-            value: "1"
-        service:
-          name: namenode
-          clusterIP: None
-          ports:
-          - containerPort: 9870
-            port: 9870
-          - containerPort: 8020
-            port: 8020
-
-  spark:
-    helm:
-      chart:
-        name: spark
-        repo: https://charts.bitnami.com/bitnami
-      values:
-        master: &spark_config
-          nodeSelector: *node_selector
-        worker: *spark_config
-
   trino:
     helm:
       chart:
@@ -166,15 +55,8 @@ deployments:
         - http-server.process-forwarded=true
         coordinator: &trino_config
           nodeSelector: *node_selector
-          additionalNodeProperties:
-          - HADOOP_USER_NAME=hadoop
         worker: *trino_config
         additionalCatalogs:
-          iceberg-hive: |-
-            connector.name=iceberg
-            iceberg.catalog.type=hive_metastore
-            hive.metastore.uri=thrift://hive-metastore:9083
-            fs.hadoop.enabled=true
           iceberg: |-
             connector.name=iceberg
             iceberg.catalog.type=rest
@@ -188,20 +70,33 @@ deployments:
             s3.aws-secret-key=miniopass
             s3.path-style-access=true
 
+  kuberay-operator:
+    helm:
+      chart:
+        name: kuberay-operator
+        repo: https://ray-project.github.io/kuberay-helm/
+
+  ray-cluster:
+    helm:
+      chart:
+        name: ray-cluster
+        repo: https://ray-project.github.io/kuberay-helm/
+
   python:
     helm:
       values:
         nodeSelector: *node_selector
         containers:
-        - image: truevoid/python
+        - image: truevoid/python:${DEVSPACE_RANDOM}
           name: python
-          command: [sleep, infinity]
-        service:
-          name: pyspark
-          clusterIP: None
-          ports:
-          - containerPort: 10000
-            port: 10000
+          command: [start-notebook.sh, --NotebookApp.token='']
+          env:
+          - name: AWS_ACCESS_KEY_ID
+            value: admin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: miniopass
+          - name: AWS_DEFAULT_REGION
+            value: euwest
 
 dev:
   python:
@@ -212,6 +107,9 @@ dev:
       excludePaths:
       - "*"
       - "!main.py"
+      - "!*.ipynb"
+    ports:
+    - port: "8888"
 
   trino:
     labelSelector:
@@ -234,16 +132,20 @@ dev:
     ports:
     - port: "9001"
 
-commands:
-  initialzie: |-
-    devspace enter -c python -- bash -c "HADOOP_USER_NAME=hadoop hdfs dfs -chown -R 777 /"
+  ray:
+    labelSelector:
+      app.kubernetes.io/instance: ray-cluster
+      app.kubernetes.io/name: kuberay
+    ports:
+    - port: "8265"
 
+commands:
   nessie-cli: |-
     kubectl run -it --rm \
       --image=ghcr.io/projectnessie/nessie-cli:latest nessie-cli -- \
         --uri=http://nessie:19120/api/v2
 
-  trino: |-
+  trino-cli: |-
     kubectl run -it --rm \
       --image=trinodb/trino:latest trino-cli -- \
         trino http://admin@trino:8080 --catalog iceberg

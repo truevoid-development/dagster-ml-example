@@ -4,13 +4,14 @@ version = "0.1.0"
 description = "Iceberg development dependencies"
 authors = ["Francisco Garcia Florez <francisco@truevoid.dev>"]
 license = "Apache-2.0"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.10"
-fsspec = { extras = ["hdfs"], version = ">=2023" }
-ipython = "^8.26.0"
-pyiceberg = { extras = ["hive"], version = ">=0.6" }
-pyspark = "^3.5.1"
+fsspec = { version = ">=2023" }
+ipython = "~8"
+pyiceberg = { extras = ["s3fs", "pandas", "daft"], version = ">=0.6" }
+ray = { extras = ["all"], version = "~2" }
 
 [build-system]
 requires = ["poetry-core"]

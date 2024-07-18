@@ -1,38 +1,13 @@
-FROM docker.io/maven:3 AS maven
+FROM quay.io/jupyter/scipy-notebook:latest
 
-COPY pom.xml .
+ENV PYTHONUNBUFFERED=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=on
+ENV POETRY_VIRTUALENVS_CREATE=false
+ENV POETRY_NO_INTERACTION=1
 
-RUN mvn dependency:copy-dependencies -DoutputDirectory=/build/lib
+RUN --mount=type=cache,target=/home/jovyan/.cache,uid=1000,gid=100 \
+    pip install poetry
 
-FROM docker.io/curlimages/curl AS curl
-
-ARG TRINO_VERSION=452
-
-WORKDIR /app
-RUN curl -Lo trino https://repo1.maven.org/maven2/io/trino/trino-cli/${TRINO_VERSION}/trino-cli-${TRINO_VERSION}-executable.jar
-
-FROM docker.io/python:3.11
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update \
-    && apt-get install -yq openjdk-17-jre-headless less
-
-RUN pip install poetry
-
-WORKDIR /app
-COPY pyproject.toml .
-COPY poetry.lock .
-RUN poetry install --no-root
-
-COPY --from=docker.io/apache/hadoop:3 /opt/hadoop /opt/hadoop
-COPY --chmod=644 core-site.xml /opt/hadoop/etc/hadoop/
-COPY --from=curl --chmod=755 /app/trino /usr/bin/trino
-
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-ENV HADOOP_HOME=/opt/hadoop
-ENV PATH=$PATH:$HADOOP_HOME/bin
-
-COPY .bashrc /root/
-
-COPY --from=maven /build/lib/*.jar /opt/hadoop/lib
+COPY --chown=jovyan:users pyproject.toml .
+COPY --chown=jovyan:users poetry.lock .
+RUN poetry install

@@ -1,4 +1,5 @@
 Session.vim
+.ipynb_checkpoints
 *.dump
 .devspace
 trino-cli
