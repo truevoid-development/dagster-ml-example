@@ -1,103 +1,105 @@
 import os
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from filelock import FileLock
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from torchvision.transforms import Normalize, ToTensor
 from tqdm import tqdm
 
 import ray.train
 from ray.train import ScalingConfig
 from ray.train.torch import TorchTrainer
 
+# Constants
+DATA_ROOT = "~/data"
+IMAGE_SIZE = 28
+NUM_CLASSES = 10
+HIDDEN_SIZE = 512
 
-def get_dataloaders(batch_size):
-    # Transform to normalize the input images
-    transform = transforms.Compose([ToTensor(), Normalize((0.5,), (0.5,))])
+def get_dataloaders(batch_size: int) -> Tuple[DataLoader, DataLoader]:
+    """
+    Prepare and return train and test dataloaders for FashionMNIST dataset.
 
-    with FileLock(os.path.expanduser("~/data.lock")):
-        # Download training data from open datasets
+    Args:
+        batch_size (int): The batch size for the dataloaders.
+
+    Returns:
+        Tuple[DataLoader, DataLoader]: Train and test dataloaders.
+    """
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,))
+    ])
+
+    with FileLock(os.path.expanduser(f"{DATA_ROOT}.lock")):
         training_data = datasets.FashionMNIST(
-            root="~/data",
-            train=True,
-            download=True,
-            transform=transform,
+            root=DATA_ROOT, train=True, download=True, transform=transform
         )
-
-        # Download test data from open datasets
         test_data = datasets.FashionMNIST(
-            root="~/data",
-            train=False,
-            download=True,
-            transform=transform,
+            root=DATA_ROOT, train=False, download=True, transform=transform
         )
 
-    # Create data loaders
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_data, batch_size=batch_size)
 
     return train_dataloader, test_dataloader
 
 
-# Model Definition
 class NeuralNetwork(nn.Module):
+    """Neural network model for FashionMNIST classification."""
+
     def __init__(self):
-        super(NeuralNetwork, self).__init__()
+        super().__init__()
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28 * 28, 512),
+            nn.Linear(IMAGE_SIZE * IMAGE_SIZE, HIDDEN_SIZE),
             nn.ReLU(),
             nn.Dropout(0.25),
-            nn.Linear(512, 512),
+            nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE),
             nn.ReLU(),
             nn.Dropout(0.25),
-            nn.Linear(512, 10),
+            nn.Linear(HIDDEN_SIZE, NUM_CLASSES),
             nn.ReLU(),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.flatten(x)
         logits = self.linear_relu_stack(x)
         return logits
 
 
-def train_func_per_worker(config: Dict):
-    lr = config["lr"]
-    epochs = config["epochs"]
+def train_func_per_worker(config: Dict[str, float]) -> None:
+    """
+    Training function to be executed on each worker.
+
+    Args:
+        config (Dict[str, float]): Configuration dictionary containing
+            learning rate, number of epochs, and batch size per worker.
+    """
+    learning_rate = config["lr"]
+    num_epochs = config["epochs"]
     batch_size = config["batch_size_per_worker"]
 
-    # Get dataloaders inside the worker training function
     train_dataloader, test_dataloader = get_dataloaders(batch_size=batch_size)
 
-    # [1] Prepare Dataloader for distributed training
-    # Shard the datasets among workers and move batches to the correct device
-    # =======================================================================
     train_dataloader = ray.train.torch.prepare_data_loader(train_dataloader)
     test_dataloader = ray.train.torch.prepare_data_loader(test_dataloader)
 
-    model = NeuralNetwork()
-
-    # [2] Prepare and wrap your model with DistributedDataParallel
-    # Move the model to the correct GPU/CPU device
-    # ============================================================
-    model = ray.train.torch.prepare_model(model)
+    model = ray.train.torch.prepare_model(NeuralNetwork())
 
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
 
-    # Model training loop
-    for epoch in range(epochs):
+    for epoch in range(num_epochs):
         if ray.train.get_context().get_world_size() > 1:
-            # Required for the distributed sampler to shuffle properly across epochs.
             train_dataloader.sampler.set_epoch(epoch)
 
         model.train()
-        for X, y in tqdm(train_dataloader, desc=f"Train Epoch {epoch}"):
-            pred = model(X)
-            loss = loss_fn(pred, y)
+        for inputs, targets in tqdm(train_dataloader, desc=f"Train Epoch {epoch}"):
+            predictions = model(inputs)
+            loss = loss_fn(predictions, targets)
 
             optimizer.zero_grad()
             loss.backward()
@@ -106,23 +108,28 @@ def train_func_per_worker(config: Dict):
         model.eval()
         test_loss, num_correct, num_total = 0, 0, 0
         with torch.no_grad():
-            for X, y in tqdm(test_dataloader, desc=f"Test Epoch {epoch}"):
-                pred = model(X)
-                loss = loss_fn(pred, y)
+            for inputs, targets in tqdm(test_dataloader, desc=f"Test Epoch {epoch}"):
+                predictions = model(inputs)
+                loss = loss_fn(predictions, targets)
 
                 test_loss += loss.item()
-                num_total += y.shape[0]
-                num_correct += (pred.argmax(1) == y).sum().item()
+                num_total += targets.shape[0]
+                num_correct += (predictions.argmax(1) == targets).sum().item()
 
-        test_loss /= len(test_dataloader)
+        avg_test_loss = test_loss / len(test_dataloader)
         accuracy = num_correct / num_total
 
-        # [3] Report metrics to Ray Train
-        # ===============================
-        ray.train.report(metrics={"loss": test_loss, "accuracy": accuracy})
+        ray.train.report(metrics={"loss": avg_test_loss, "accuracy": accuracy})
 
 
-def train_fashion_mnist(num_workers=2, use_gpu=False):
+def train_fashion_mnist(num_workers: int = 2, use_gpu: bool = False) -> None:
+    """
+    Train the FashionMNIST model using distributed training.
+
+    Args:
+        num_workers (int): Number of workers for distributed training.
+        use_gpu (bool): Whether to use GPU for training.
+    """
     global_batch_size = 32
 
     train_config = {
@@ -131,19 +138,14 @@ def train_fashion_mnist(num_workers=2, use_gpu=False):
         "batch_size_per_worker": global_batch_size // num_workers,
     }
 
-    # Configure computation resources
     scaling_config = ScalingConfig(num_workers=num_workers, use_gpu=use_gpu)
 
-    # Initialize a Ray TorchTrainer
     trainer = TorchTrainer(
         train_loop_per_worker=train_func_per_worker,
         train_loop_config=train_config,
         scaling_config=scaling_config,
     )
 
-    # [4] Start distributed training
-    # Run `train_func_per_worker` on all workers
-    # =============================================
     result = trainer.fit()
     print(f"Training result: {result}")
 
