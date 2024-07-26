@@ -1,5 +1,12 @@
 version: v2beta1
 name: devspace-iceberg
+
+# Define common configurations
+configs:
+  node_selector: &node_selector
+    kubernetes.io/hostname: node-dedicated-0
+
+# Pipeline definition
 pipelines:
   dev:
     run: |-
@@ -9,17 +16,18 @@ pipelines:
       create_deployments ray-cluster
       start_dev --all
 
+# Image definitions
 images:
   hive-metastore:
     image: truevoid/hive-metastore
     dockerfile: hive-metastore/Dockerfile
     context: hive-metastore
-
   python:
     image: truevoid/python
     dockerfile: python-hdfs/Dockerfile
     context: python-hdfs
 
+# Deployment configurations
 deployments:
   minio:
     helm:
@@ -28,8 +36,7 @@ deployments:
         repo: https://charts.bitnami.com/bitnami
       values:
         provisioning:
-          nodeSelector: &node_selector
-            kubernetes.io/hostname: node-dedicated-0
+          nodeSelector: *node_selector
         auth:
           rootPassword: miniopass
         defaultBuckets: storage
@@ -53,9 +60,10 @@ deployments:
           tag: "452"
         additionalConfigProperties:
         - http-server.process-forwarded=true
-        coordinator: &trino_config
+        coordinator:
           nodeSelector: *node_selector
-        worker: *trino_config
+        worker:
+          nodeSelector: *node_selector
         additionalCatalogs:
           iceberg: |-
             connector.name=iceberg
@@ -120,6 +128,7 @@ deployments:
           emptyDir:
             medium: Memory
 
+# Development configurations
 dev:
   python:
     labelSelector:
@@ -161,6 +170,7 @@ dev:
     ports:
     - port: "8265"
 
+# Custom commands
 commands:
   nessie-cli: |-
     kubectl run -it --rm \
@@ -182,15 +192,11 @@ commands:
 
   restore: |-
     helm uninstall --ignore-not-found hive-metastore
-
     kubectl exec postgres-postgresql-0 -- \
       bash -c "PGPASSWORD=hive dropdb -h localhost -U hive hive"
-
     kubectl exec postgres-postgresql-0 -- \
       bash -c "PGPASSWORD=hive createdb -h localhost -U hive hive"
-
     kubectl exec -i postgres-postgresql-0 -- \
       bash -c "PGPASSWORD=hive pg_restore --clean --if-exists -h localhost -d hive -U hive" \
       <$@
-
     devspace deploy --skip-build hive-metastore
