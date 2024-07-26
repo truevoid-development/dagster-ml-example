@@ -10,4 +10,9 @@ RUN --mount=type=cache,target=/home/jovyan/.cache,uid=1000,gid=100 \
 
 COPY --chown=jovyan:users pyproject.toml .
 COPY --chown=jovyan:users poetry.lock .
-RUN poetry install
+RUN --mount=type=cache,target=/home/jovyan/.cache,uid=1000,gid=100 \
+    poetry env remove --all \
+    && poetry install \
+    && rm poetry.lock pyproject.toml
+
+RUN jupyter labextension disable "@jupyterlab/apputils-extension:announcements"

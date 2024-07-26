@@ -1,4 +1,7 @@
 Session.vim
+*.tgz
+kuberay-helm
+
 .ipynb_checkpoints
 *.dump
 .devspace

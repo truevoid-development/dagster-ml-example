@@ -79,8 +79,20 @@ deployments:
   ray-cluster:
     helm:
       chart:
-        name: ray-cluster
-        repo: https://ray-project.github.io/kuberay-helm/
+        path: kuberay-helm/helm-chart/ray-cluster
+      values:
+        image:
+          repository: truevoid/python
+          pullPolicy: Always
+        worker:
+          nodeSelector: *node_selector
+          resources:
+            limits:
+              cpu: "4"
+              memory: "4G"
+            requests:
+              cpu: "2"
+              memory: "2G"
 
   python:
     helm:
@@ -97,6 +109,16 @@ deployments:
             value: miniopass
           - name: AWS_DEFAULT_REGION
             value: euwest
+          - name: RAY_ADDRESS
+            value: ray-cluster-kuberay-head-svc:6379
+          volumeMounts:
+          - containerPath: /dev/shm
+            volume:
+              name: dshm
+        volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
 
 dev:
   python:

@@ -9,9 +9,19 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.10"
 fsspec = { version = ">=2023" }
+numpy = "<2"
 ipython = "~8"
 pyiceberg = { extras = ["s3fs", "pandas", "daft"], version = ">=0.6" }
 ray = { extras = ["all"], version = "~2" }
+torch = { version = "^2.3.1+cpu", source = "pytorch_cpu" }
+torchvision = { version = "^0.18.1+cpu", source = "pytorch_cpu" }
+tqdm = "~4"
+setuptools = "~71"
+
+[[tool.poetry.source]]
+name = "pytorch_cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core"]
