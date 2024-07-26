@@ -6,3 +6,4 @@ kuberay-helm
 *.dump
 .devspace
 trino-cli
+.aider*
