@@ -1,0 +1,37 @@
+telemetry:
+  enabled: false
+
+python_logs:
+  python_log_level: DEBUG
+  managed_python_loggers: ["*"]
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1
+
+storage:
+  postgres:
+    postgres_db:
+      username: dagster
+      password: dagster
+      hostname: postgres-dagster-postgresql-hl
+      db_name: dagster
+      port: 5432
+
+compute_logs:
+  module: dagster_aws.s3.compute_log_manager
+  class: S3ComputeLogManager
+  config:
+    bucket: storage
+    prefix: dagster/compute_logs
+    endpoint_url: http://minio:9000
+    local_dir: /tmp/dagster/compute_logs
+
+# https://docs.dagster.io/deployment/dagster-instance#local-artifact-storage
+local_artifact_storage:
+  module: dagster.core.storage.root
+  class: LocalArtifactStorage
+  config:
+    base_dir: s3://storage/dagster

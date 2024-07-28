@@ -1,0 +1,86 @@
+version: v2beta1
+name: dagster
+pipelines:
+  dev:
+    run: |-
+      build_images --all -t ${DEVSPACE_RANDOM}
+      create_deployments --all
+
+images:
+  dagster:
+    image: &image truevoid/dagster
+    dockerfile: Dockerfile
+
+deployments:
+  postgres-dagster:
+    helm:
+      chart:
+        name: postgresql
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        global:
+          postgresql:
+            auth:
+              postgresPassword: dagster
+              username: dagster
+              password: dagster
+              database: dagster
+        primary:
+          livenessProbe:
+            enabled: false
+          resourcePreset: medium
+          persistence:
+            enabled: false
+
+  dagster:
+    helm:
+      values:
+        node_selector: &node_selector
+          kubernetes.io/hostname: node-dedicated-0
+        containers:
+        - image: *image
+          name: dagster
+          command: [dagster, dev]
+          ports:
+          - containerPort: 3000
+            name: http
+            protocol: TCP
+          env:
+          - name: MNIST_CATALOG_URI
+            value: http://nessie:19120/iceberg
+          - name: MNIST_LOCATION
+            value: s3a://storage/lakehouse
+          - name: AWS_ACCESS_KEY_ID
+            value: admin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: miniopass
+          - name: AWS_DEFAULT_REGION
+            value: euwest
+          - name: FSSPEC_S3_ENDPOINT_URL
+            value: http://minio:9000
+          - name: DAGSTER_HOME
+            value: /tmp/dagster
+
+  python:
+    helm:
+      values:
+        node_selector: *node_selector
+        containers:
+        - image: *image
+          name: python
+          command: [jupyter, lab, --allow-root, --NotebookApp.token='', --ip, 0.0.0.0]
+          env:
+          - name: AWS_ACCESS_KEY_ID
+            value: admin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: miniopass
+          - name: AWS_DEFAULT_REGION
+            value: euwest
+          volumeMounts:
+          - containerPath: /dev/shm
+            volume:
+              name: dshm
+        volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory

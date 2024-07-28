@@ -7,3 +7,5 @@ kuberay-helm
 .devspace
 trino-cli
 .aider*
+sklearn_cache
+__pycache__

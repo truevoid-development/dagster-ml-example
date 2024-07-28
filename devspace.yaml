@@ -1,33 +1,18 @@
 version: v2beta1
 name: devspace-iceberg
 
-# Define common configurations
-configs:
-  node_selector: &node_selector
-    kubernetes.io/hostname: node-dedicated-0
-
-# Pipeline definition
 pipelines:
   dev:
     run: |-
+      run_dependency_pipelines --all
       build_images --all -t ${DEVSPACE_RANDOM}
-      create_deployments minio nessie trino python kuberay-operator
-      wait_pod --label-selector app.kubernetes.io/component=kuberay-operator
-      create_deployments ray-cluster
+      create_deployments --all
       start_dev --all
 
-# Image definitions
-images:
-  hive-metastore:
-    image: truevoid/hive-metastore
-    dockerfile: hive-metastore/Dockerfile
-    context: hive-metastore
-  python:
-    image: truevoid/python
-    dockerfile: python-hdfs/Dockerfile
-    context: python-hdfs
+dependencies:
+  dagster:
+    path: python-hdfs
 
-# Deployment configurations
 deployments:
   minio:
     helm:
@@ -36,7 +21,8 @@ deployments:
         repo: https://charts.bitnami.com/bitnami
       values:
         provisioning:
-          nodeSelector: *node_selector
+          node_selector: &node_selector
+            kubernetes.io/hostname: node-dedicated-0
         auth:
           rootPassword: miniopass
         defaultBuckets: storage
@@ -69,7 +55,7 @@ deployments:
             connector.name=iceberg
             iceberg.catalog.type=rest
             iceberg.rest-catalog.uri=http://nessie:19120/iceberg
-            iceberg.rest-catalog.prefix=${DEVSPACE_NAMESPACE}
+            iceberg.rest-catalog.prefix=main
             iceberg.rest-catalog.warehouse=s3a://storage/lakehouse
             fs.native-s3.enabled=true
             s3.endpoint=http://minio:9000
@@ -78,57 +64,6 @@ deployments:
             s3.aws-secret-key=miniopass
             s3.path-style-access=true
 
-  kuberay-operator:
-    helm:
-      chart:
-        name: kuberay-operator
-        repo: https://ray-project.github.io/kuberay-helm/
-
-  ray-cluster:
-    helm:
-      chart:
-        path: kuberay-helm/helm-chart/ray-cluster
-      values:
-        image:
-          repository: truevoid/python
-          pullPolicy: Always
-        worker:
-          nodeSelector: *node_selector
-          resources:
-            limits:
-              cpu: "4"
-              memory: "4G"
-            requests:
-              cpu: "2"
-              memory: "2G"
-
-  python:
-    helm:
-      values:
-        nodeSelector: *node_selector
-        containers:
-        - image: truevoid/python:${DEVSPACE_RANDOM}
-          name: python
-          command: [start-notebook.sh, --NotebookApp.token='']
-          env:
-          - name: AWS_ACCESS_KEY_ID
-            value: admin
-          - name: AWS_SECRET_ACCESS_KEY
-            value: miniopass
-          - name: AWS_DEFAULT_REGION
-            value: euwest
-          - name: RAY_ADDRESS
-            value: ray-cluster-kuberay-head-svc:6379
-          volumeMounts:
-          - containerPath: /dev/shm
-            volume:
-              name: dshm
-        volumes:
-        - name: dshm
-          emptyDir:
-            medium: Memory
-
-# Development configurations
 dev:
   python:
     labelSelector:
@@ -139,6 +74,7 @@ dev:
       - "*"
       - "!main.py"
       - "!*.ipynb"
+      - "!mnist"
     ports:
     - port: "8888"
 
@@ -163,14 +99,18 @@ dev:
     ports:
     - port: "9001"
 
-  ray:
+  dagster:
     labelSelector:
-      app.kubernetes.io/instance: ray-cluster
-      app.kubernetes.io/name: kuberay
+      app.kubernetes.io/component: dagster
+    sync:
+    - path: python-hdfs:.
+      excludePaths:
+      - "*"
+      - "!mnist"
+      - "!sklearn_cache"
     ports:
-    - port: "8265"
+    - port: "3000"
 
-# Custom commands
 commands:
   nessie-cli: |-
     kubectl run -it --rm \

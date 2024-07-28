@@ -4,29 +4,84 @@ version = "0.1.0"
 description = "Iceberg development dependencies"
 authors = ["Francisco Garcia Florez <francisco@truevoid.dev>"]
 license = "Apache-2.0"
+packages = [{ include = "mnist" }]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.10"
-fsspec = { version = ">=2023" }
-numpy = "<2"
+python = ">=3.10,<3.13"
+fsspec = ">=2024"
+numpy = ">=2"
 ipython = "~8"
-pyiceberg = { extras = ["s3fs", "pandas", "daft"], version = ">=0.6" }
-ray = { extras = ["all"], version = "~2" }
-torch = { version = "^2.3.1+cpu", source = "pytorch_cpu" }
-torchvision = { version = "^0.18.1+cpu", source = "pytorch_cpu" }
-tqdm = "~4"
+pyiceberg = ">=0.6"
 setuptools = "~71"
-
-[[tool.poetry.source]]
-name = "pytorch_cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
+dagster = "~1.7"
+dagster-webserver = "~1.7"
+pyarrow = ">=17"
+s3fs = ">=2024"
+daft = "~0"
+pandas = "~2"
+scikit-learn = "^1.5.1"
+jupyter = "^1.0.0"
+dagster-postgres = "^0.23.15"
+trino = "^0.329.0"
+dagster-aws = "^0.23.15"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pyright]
-include = ["chunked_upload"]
+include = ["mnist"]
 exclude = ["build"]
+
+[tool.dagster]
+module_name = "mnist.code_location"
+
+[tool.ruff]
+fix = true
+unsafe-fixes = true
+show-fixes = true
+extend-include = ["*.ipynb"]
+line-length = 101
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+  "B",   # flake8-bugbear
+  "D",   # pydocstyle
+  "E",   # pycodestyle
+  "F",   # Pyflakes
+  "I",   # import sort/remove
+  "PL",  # pylint
+  "UP",  # pyupgrade
+  "W",   # pycodestyle
+  "SIM", # flake8-simplify
+]
+extend-fixable = ["B"]
+
+# Ignore certain rules
+ignore = ["D100", "D104", "D202"]
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+line-ending = "lf"
+docstring-code-format = true
+docstring-code-line-length = 79
+
+[tool.docformatter]
+recursive = true
+wrap-summaries = 79
+wrap-descriptions = 79
+close-quotes-on-newline = true
+
+[tool.pytest.ini_options]
+console_output_style = "progress"
+addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb --cov --cov=dagster-composable-graphs --cov-context=test --cov-report html --cov-report term --cov-report xml --junitxml=report.xml"
