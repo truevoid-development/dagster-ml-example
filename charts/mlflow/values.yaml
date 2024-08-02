@@ -1,0 +1,56 @@
+mlflow:
+  tracking:
+    service:
+      type: ClusterIP
+    auth:
+      enabled: false
+    nodeSelector: &node_selector
+      kubernetes.io/hostname: node-dedicated-0
+    persistence:
+      enabled: false
+    extraEnvvars:
+    - name: AWS_ACCESS_KEY_ID
+      value: admin
+    - name: AWS_SECRET_ACCESS_KEY
+      value: miniopass
+
+  run:
+    enabled: false
+
+  postgresql:
+    enabled: false
+
+  externalDatabase:
+    host: mlflow-postgresql-hl
+    username: mlflow
+    password: mlflow
+    database: mlflow
+
+  minio:
+    enabled: false
+
+  externalS3:
+    host: minio
+    port: 9000
+    accessKeyID: admin
+    accessKeySecret: miniopass
+    protocol: http
+    bucket: storage
+    serveArtifacts: true
+
+postgresql:
+  global:
+    postgresql:
+      auth:
+        postgresPassword: mlflow
+        username: mlflow
+        password: mlflow
+        database: mlflow
+
+  primary:
+    livenessProbe:
+      enabled: false
+    resourcePreset: medium
+    persistence:
+      enabled: false
+    nodeSelector: *node_selector

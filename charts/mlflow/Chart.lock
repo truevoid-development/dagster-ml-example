@@ -1,0 +1,9 @@
+dependencies:
+- name: mlflow
+  repository: https://charts.bitnami.com/bitnami
+  version: 1.4.21
+- name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 15.5.20
+digest: sha256:b5dc93e0f11494d0b64012e1d44fe87ab06e4711401fd13f29fa46223080ed0f
+generated: "2024-08-01T12:05:45.731896702+02:00"

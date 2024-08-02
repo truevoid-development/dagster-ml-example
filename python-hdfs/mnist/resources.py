@@ -1,10 +1,21 @@
-from typing import Any, Dict
+import contextlib
+from abc import abstractmethod
+from enum import Enum
+from typing import Any, Dict, List, Sequence, Type, TypeVar
 
 import dagster
+import polars
 import pydantic
 import pyiceberg
 import pyiceberg.catalog
+import pyiceberg.exceptions
 import trino
+from dagster._core.storage.db_io_manager import (
+    DbClient,
+    DbIOManager,
+    DbTypeHandler,
+    TableSlice,
+)
 
 
 class IcebergResource(dagster.ConfigurableResource):
@@ -17,13 +28,18 @@ class IcebergResource(dagster.ConfigurableResource):
         default=dagster.EnvVar("MNIST_LOCATION"),
         description="Location of the schema in the database.",
     )
+    catalog_schema: str = pydantic.Field(
+        default="public", description="Name of the schema in which tables are created."
+    )
 
     @property
     def catalog(self) -> pyiceberg.catalog.Catalog:
         """Return the iceberg catalog."""
 
         return pyiceberg.catalog.load_catalog(
-            uri=self.catalog_uri,
+            uri=self.catalog_uri.get_value()
+            if isinstance(self.catalog_uri, dagster.EnvVar)
+            else self.catalog_uri,
             properties={
                 "s3": {
                     "endpoint": dagster.EnvVar("MNIST_S3_ENDPOINT"),
@@ -32,6 +48,15 @@ class IcebergResource(dagster.ConfigurableResource):
                 }
             },
         )
+
+    def create_namespace(self, name: str) -> None:
+        """Create a new namespace if it does not exist."""
+
+        with contextlib.suppress(pyiceberg.exceptions.NamespaceAlreadyExistsError):
+            self.catalog.create_namespace(name, properties={"location": self.location})
+
+
+iceberg_resource = IcebergResource()
 
 
 class TrinoResource(dagster.ConfigurableResource):
@@ -53,7 +78,7 @@ class TrinoResource(dagster.ConfigurableResource):
 
     @property
     def connection(self) -> trino.dbapi.Connection:
-        """Returns the `dbapi` connection to Trino."""
+        """Return the `dbapi` connection to Trino."""
 
         return trino.dbapi.Connection(
             host=self.host,
@@ -63,3 +88,195 @@ class TrinoResource(dagster.ConfigurableResource):
             schema=self.catalog_schema,
             **self.additional_parameters,
         )
+
+
+trino_resource = TrinoResource()
+
+
+class IcebergIOManager(dagster.ConfigurableIOManagerFactory):
+    """Stores outputs in Iceberg tables."""
+
+    iceberg: IcebergResource
+
+    @staticmethod
+    @abstractmethod
+    def type_handlers() -> Sequence[DbTypeHandler]:
+        """Return a sequence of types handled by this IO manager."""
+
+    @staticmethod
+    def default_load_type() -> Type | None:
+        """Return the default load type."""
+
+        return None
+
+    def create_io_manager(self, context) -> DbIOManager:
+        """Return an initialized `DbIOManager`."""
+
+        return DbIOManager(
+            db_client=IcebergClient(),
+            database=self.iceberg.catalog_uri,
+            schema=self.iceberg.catalog_schema,
+            type_handlers=self.type_handlers(),
+            default_load_type=self.default_load_type(),
+            io_manager_name="IcebergIOManager",
+        )
+
+
+IcebergConnection = TypeVar("IcebergConnection", bound=IcebergResource)
+
+
+class IcebergClient(DbClient):
+    """Client to read and write data in Iceberg tables."""
+
+    @staticmethod
+    def delete_table_slice(
+        context: dagster.OutputContext, table_slice: TableSlice, connection: IcebergConnection
+    ) -> None:
+        """Delete a table slice."""
+
+        if table_slice.partition_dimensions and len(table_slice.partition_dimensions) > 0:
+            raise NotImplementedError
+
+        else:
+            with contextlib.suppress(pyiceberg.exceptions.NoSuchTableError):
+                connection.catalog.drop_table(table_slice.schema)
+
+    @staticmethod
+    def ensure_schema_exists(
+        context: dagster.OutputContext,
+        table_slice: TableSlice,
+        connection: IcebergConnection,
+    ) -> None:
+        """Create a schema if it does not exist."""
+
+        connection.create_namespace(table_slice.schema)
+
+    @staticmethod
+    def get_select_statement(table_slice: TableSlice) -> str:
+        """Return a select statement for the provided table slice."""
+
+        return ""
+
+    @staticmethod
+    @contextlib.contextmanager
+    def connect(
+        context: dagster.InputContext | dagster.OutputContext, table_slice: TableSlice
+    ) -> IcebergConnection:
+        """Yield the Iceberg catalog."""
+
+        yield DagsterResources.Iceberg.resource
+
+
+class IcebergPolarsTypeHandler(DbTypeHandler[polars.DataFrame]):
+    """Stores and loads Polars DataFrames in Iceberg."""
+
+    def handle_output(
+        self,
+        context: dagster.OutputContext,
+        table_slice: TableSlice,
+        obj: polars.DataFrame,
+        connection: IcebergConnection,
+    ):
+        """Store the polars DataFrame in Iceberg."""
+
+        obj_arrow = obj.to_arrow()
+
+        connection.create_namespace(table_slice.schema)
+
+        with contextlib.suppress(pyiceberg.exceptions.TableAlreadyExistsError):
+            connection.catalog.create_table(
+                table_name := f"{table_slice.schema}.{table_slice.table}", schema=obj_arrow.schema
+            )
+
+        iceberg_table = connection.catalog.load_table(table_name)
+        iceberg_table.overwrite(obj_arrow)
+
+        context.add_output_metadata(
+            {
+                "row_count": obj.shape[0],
+                "dataframe_columns": dagster.MetadataValue.table_schema(
+                    dagster.TableSchema(
+                        columns=[
+                            dagster.TableColumn(name=name, type=str(dtype))
+                            for name, dtype in zip(obj.columns, obj.dtypes)
+                        ]
+                    )
+                ),
+            }
+        )
+
+    def load_input(
+        self, context: dagster.InputContext, table_slice: TableSlice, connection: IcebergConnection
+    ) -> polars.DataFrame:
+        """Load the input as a Polars DataFrame."""
+
+        if table_slice.partition_dimensions and len(context.asset_partition_keys) == 0:
+            return polars.DataFrame()
+
+        iceberg_table = connection.catalog.load_table(f"{table_slice.schema}.{table_slice.table}")
+
+        if table_slice.partition_dimensions and len(table_slice.partition_dimensions) > 0:
+            raise NotImplementedError
+
+        else:
+            return polars.DataFrame(
+                iceberg_table.scan(
+                    selected_fields=table_slice.columns if table_slice.columns else ("*",),
+                ).to_arrow()
+            )
+
+    @property
+    def supported_types(self) -> List[Type]:
+        """Return the supported types."""
+
+        return [polars.DataFrame]
+
+
+class IcebergPolarsIOManager(IcebergIOManager):
+    """Stores `polars` tables in Iceberg."""
+
+    @classmethod
+    def _is_dagster_maintained(cls) -> bool:
+        return False
+
+    @staticmethod
+    def type_handlers() -> Sequence[DbTypeHandler]:
+        """Return the types that this class handles."""
+
+        return [IcebergPolarsTypeHandler()]
+
+    @staticmethod
+    def default_load_type() -> Type | None:
+        """Return the default type that this class loads."""
+
+        return polars.DataFrame
+
+
+iceberg_polars_io_manager = IcebergPolarsIOManager(iceberg=IcebergResource(catalog_schema="dagster"))
+
+
+class DagsterResources(Enum):
+    """Resources in the system."""
+
+    Iceberg = "iceberg"
+    Trino = "trino"
+    IcebergPolarsIOManager = "iceberg_io_manager"
+
+    @property
+    def resource(self) -> dagster.ConfigurableResource | dagster.ConfigurableIOManager:
+        """Return the corresponding IO manager."""
+
+        if self == self.Iceberg:
+            return iceberg_resource
+
+        if self == self.Trino:
+            return trino_resource
+
+        if self == self.IcebergPolarsIOManager:
+            return iceberg_polars_io_manager
+
+    @classmethod
+    def to_resources(cls) -> Dict[str, dagster.ConfigurableResource]:
+        """Return resources in the code location."""
+
+        return {k.value: k.resource for k in cls}

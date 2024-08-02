@@ -60,6 +60,8 @@ deployments:
             value: http://minio:9000
           - name: DAGSTER_HOME
             value: /tmp/dagster
+          - name: MLFLOW_TRACKING_URI
+            value: http://mlflow-tracking
 
   python:
     helm:
@@ -76,6 +78,8 @@ deployments:
             value: miniopass
           - name: AWS_DEFAULT_REGION
             value: euwest
+          - name: MLFLOW_TRACKING_URI
+            value: http://mlflow-tracking
           volumeMounts:
           - containerPath: /dev/shm
             volume:

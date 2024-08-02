@@ -1,62 +1,33 @@
-import contextlib
-from typing import List
+from typing import Any, List
 
 import dagster
+import polars
 import pyarrow
 import pydantic
-import pyiceberg.exceptions
-from pyiceberg.io.pyarrow import schema_to_pyarrow
 from sklearn.datasets import fetch_openml
 
-from .resources import IcebergResource, TrinoResource
+from mnist.jobs import analyze_model, train_model
+
+from .resources import IcebergResource
 
 
-@dagster.asset()
-def mnist_dataset(context: dagster.AssetExecutionContext, iceberg: IcebergResource) -> str:
+@dagster.asset(io_manager_key="iceberg_io_manager")
+def mnist_dataset(
+    context: dagster.AssetExecutionContext, iceberg: IcebergResource
+) -> polars.DataFrame:
     """Load MNIST to the database."""
 
     fashion_mnist = fetch_openml(name="Fashion-MNIST", data_home="sklearn_cache")
     data = fashion_mnist["data"].to_numpy()
     target = fashion_mnist["target"].to_numpy()
 
-    from pyiceberg.schema import Schema
-    from pyiceberg.types import IntegerType, ListType, NestedField
-
-    schema = Schema(
-        NestedField(
-            required=True,
-            field_id=1,
-            name="pixels",
-            field_type=ListType(element_id=0, element_required=True, element=IntegerType()),
-        ),
-        NestedField(
-            required=True,
-            field_id=2,
-            name="class",
-            field_type=IntegerType(),
-        ),
+    return polars.DataFrame(
+        pyarrow.Table.from_pylist(
+            mapping=[
+                {"pixels": data[irow], "class": int(target[irow])} for irow in range(target.size)
+            ],
+        )
     )
-
-    schema_name = "mnist"
-    table_name = "fashion"
-    full_table_name = f"{schema_name}.{table_name}"
-
-    with contextlib.suppress(pyiceberg.exceptions.NamespaceAlreadyExistsError):
-        iceberg.catalog.create_namespace(schema_name, properties={"location": iceberg.location})
-
-    with contextlib.suppress(pyiceberg.exceptions.TableAlreadyExistsError):
-        iceberg.catalog.create_table(full_table_name, schema=schema)
-
-    iceberg_table = iceberg.catalog.load_table(full_table_name)
-
-    arrow_table = pyarrow.Table.from_pylist(
-        mapping=[{"pixels": data[irow], "class": int(target[irow])} for irow in range(target.size)],
-        schema=schema_to_pyarrow(iceberg_table.schema()),
-    )
-
-    iceberg_table.overwrite(arrow_table)
-
-    return full_table_name
 
 
 class MnistViewConfig(dagster.Config):
@@ -68,21 +39,19 @@ class MnistViewConfig(dagster.Config):
     )
 
 
-@dagster.asset()
+@dagster.asset(io_manager_key="iceberg_io_manager")
 def mnist_view(
     context: dagster.AssetExecutionContext,
     config: MnistViewConfig,
-    trino: TrinoResource,
-    mnist_dataset: str,
-) -> None:
+    mnist_dataset: polars.DataFrame,
+) -> polars.DataFrame:
     """Create a view on the full dataset."""
 
-    sql = (
-        "CREATE OR REPLACE VIEW fashion_view AS "
-        f"(SELECT * FROM {mnist_dataset} WHERE class IN ({', '.join(map(str, config.classes))}))"
-    )
+    return mnist_dataset.filter(polars.col("class").is_in(config.classes))
 
-    context.log.debug(sql)
 
-    with trino.connection as session:
-        session.cursor().execute(sql)
+@dagster.graph_asset(ins={"mnist_view": dagster.AssetIn("mnist_view")})
+def train_mnist_model(mnist_view: Any) -> None:
+    """Trains a model on the MNIST fashion dataset."""
+
+    return analyze_model(train_model(mnist_view))

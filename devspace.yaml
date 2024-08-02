@@ -64,6 +64,11 @@ deployments:
             s3.aws-secret-key=miniopass
             s3.path-style-access=true
 
+  mlflow:
+    helm:
+      chart:
+        path: charts/mlflow
+
 dev:
   python:
     labelSelector:
@@ -98,6 +103,13 @@ dev:
       app.kubernetes.io/name: minio
     ports:
     - port: "9001"
+
+  mlflow:
+    labelSelector:
+      app.kubernetes.io/instance: mlflow
+      app.kubernetes.io/name: mlflow
+    ports:
+    - port: "5000"
 
   dagster:
     labelSelector:
