@@ -32,6 +32,26 @@ deployments:
           persistence:
             enabled: false
 
+  postgres-optuna:
+    helm:
+      chart:
+        name: postgresql
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        global:
+          postgresql:
+            auth:
+              postgresPassword: optuna
+              username: optuna
+              password: optuna
+              database: optuna
+        primary:
+          livenessProbe:
+            enabled: false
+          resourcePreset: medium
+          persistence:
+            enabled: false
+
   dagster:
     helm:
       values:
@@ -62,6 +82,12 @@ deployments:
             value: /tmp/dagster
           - name: MLFLOW_TRACKING_URI
             value: http://mlflow-tracking
+          - name: OPTUNA_STORAGE_URL
+            value: postgresql://optuna:optuna@postgres-optuna-postgresql-hl:5432/optuna
+          - name: PYTHONUNBUFFERED
+            value: "1"
+          - name: MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING
+            value: "1"
 
   python:
     helm:

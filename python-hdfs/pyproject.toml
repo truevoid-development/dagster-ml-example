@@ -29,6 +29,7 @@ getdaft = "~0.2"
 matplotlib = "~3"
 seaborn = "~0"
 mlflow-skinny = "^2.15.0"
+optuna = "^3.6.1"
 
 [build-system]
 requires = ["poetry-core"]

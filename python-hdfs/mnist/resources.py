@@ -1,9 +1,11 @@
 import contextlib
+import math
 from abc import abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Sequence, Type, TypeVar
 
 import dagster
+import optuna
 import polars
 import pydantic
 import pyiceberg
@@ -16,6 +18,8 @@ from dagster._core.storage.db_io_manager import (
     DbTypeHandler,
     TableSlice,
 )
+
+from .utils import persistent_run_id
 
 
 class IcebergResource(dagster.ConfigurableResource):
@@ -181,12 +185,16 @@ class IcebergPolarsTypeHandler(DbTypeHandler[polars.DataFrame]):
 
         obj_arrow = obj.to_arrow()
 
-        connection.create_namespace(table_slice.schema)
+        with contextlib.suppress(pyiceberg.exceptions.NamespaceAlreadyExistsError):
+            connection.create_namespace(table_slice.schema)
+
+        table_name = f"{table_slice.schema}.{table_slice.table}"
+
+        with contextlib.suppress(pyiceberg.exceptions.NoSuchTableError):
+            connection.catalog.drop_table(table_name)
 
         with contextlib.suppress(pyiceberg.exceptions.TableAlreadyExistsError):
-            connection.catalog.create_table(
-                table_name := f"{table_slice.schema}.{table_slice.table}", schema=obj_arrow.schema
-            )
+            connection.catalog.create_table(table_name, schema=obj_arrow.schema)
 
         iceberg_table = connection.catalog.load_table(table_name)
         iceberg_table.overwrite(obj_arrow)
@@ -255,12 +263,58 @@ class IcebergPolarsIOManager(IcebergIOManager):
 iceberg_polars_io_manager = IcebergPolarsIOManager(iceberg=IcebergResource(catalog_schema="dagster"))
 
 
+class OptunaResource(dagster.ConfigurableResource):
+    """Optuna-specific configuration."""
+
+    study_name: str | None = pydantic.Field(default=None, description="Name of the study.")
+    storage_url: str | None = pydantic.Field(
+        default=dagster.EnvVar("OPTUNA_STORAGE_URL").get_value(),
+        description="Indicates which database is used to store studies.",
+    )
+    direction: optuna.study.StudyDirection = pydantic.Field(
+        default=optuna.study.StudyDirection.MAXIMIZE,
+        description="Indicates whether loss is maximied or minimized.",
+    )
+    n_total_trials: int = pydantic.Field(
+        default=16, description="Total number of trials. The actual number may be higher."
+    )
+    n_workers: int = pydantic.Field(default=4, description="Number of workers executing trials.")
+
+    @property
+    def n_trials(self) -> int:
+        """Number of trials per worker."""
+
+        return math.ceil(self.n_total_trials / self.n_workers)
+
+    @contextlib.contextmanager
+    def study(self) -> optuna.study.Study:
+        """Create a context manager with a new or existing study."""
+
+        yield optuna.create_study(
+            storage=self.storage_url,
+            study_name=self.study_name,
+            direction=self.direction,
+            load_if_exists=True,
+        )
+
+
+@dagster.resource
+def build_optuna_resource(context: dagster.InitResourceContext) -> OptunaResource:
+    """Build an Optuna resource."""
+
+    return OptunaResource(study_name=persistent_run_id(context))
+
+
+optuna_resource = build_optuna_resource
+
+
 class DagsterResources(Enum):
     """Resources in the system."""
 
     Iceberg = "iceberg"
     Trino = "trino"
     IcebergPolarsIOManager = "iceberg_io_manager"
+    Optuna = "optuna_resource"
 
     @property
     def resource(self) -> dagster.ConfigurableResource | dagster.ConfigurableIOManager:
@@ -274,6 +328,9 @@ class DagsterResources(Enum):
 
         if self == self.IcebergPolarsIOManager:
             return iceberg_polars_io_manager
+
+        if self == self.Optuna:
+            return optuna_resource
 
     @classmethod
     def to_resources(cls) -> Dict[str, dagster.ConfigurableResource]:
