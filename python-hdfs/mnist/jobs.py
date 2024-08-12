@@ -262,3 +262,24 @@ def analyze_model(
                 mlflow.log_metric(key=f"{key}_{iclass:02d}", value=value[iclass])
 
         mlflow.log_figure(fig, artifact_file="metrics.png")
+
+
+@dagster.op(out=dagster.Out(io_manager_key="iceberg_io_manager"))
+def test_op_dataframe_output() -> polars.DataFrame:
+    """Return a `polars.DataFrame`."""
+
+    return polars.DataFrame(data={"a": [0, 1, 2], "b": [1.2, 3.4, 5.6], "c": ["a", "b", "c"]})
+
+
+@dagster.op(out=dagster.Out(io_manager_key="iceberg_io_manager"))
+def test_op_dataframe_input(df: polars.DataFrame) -> polars.DataFrame:
+    """Multiply column `a` times two."""
+
+    return df.with_columns((polars.col("a") * 2).alias("a_doubled"))
+
+
+@dagster.job()
+def test_dataframes() -> None:
+    """Execute some operations with dataframes."""
+
+    test_op_dataframe_input(test_op_dataframe_output())

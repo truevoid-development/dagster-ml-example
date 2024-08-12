@@ -174,6 +174,13 @@ class IcebergClient(DbClient):
 class IcebergPolarsTypeHandler(DbTypeHandler[polars.DataFrame]):
     """Stores and loads Polars DataFrames in Iceberg."""
 
+    def table_name(
+        self, context: dagster.OutputContext | dagster.InputContext, table_slice: TableSlice
+    ) -> str:
+        """Return the table name for the input or output."""
+
+        return f"{table_slice.schema}.{context.run_id}-{table_slice.table}"
+
     def handle_output(
         self,
         context: dagster.OutputContext,
@@ -188,7 +195,7 @@ class IcebergPolarsTypeHandler(DbTypeHandler[polars.DataFrame]):
         with contextlib.suppress(pyiceberg.exceptions.NamespaceAlreadyExistsError):
             connection.create_namespace(table_slice.schema)
 
-        table_name = f"{table_slice.schema}.{table_slice.table}"
+        table_name = self.table_name(context, table_slice)
 
         with contextlib.suppress(pyiceberg.exceptions.NoSuchTableError):
             connection.catalog.drop_table(table_name)
@@ -221,7 +228,7 @@ class IcebergPolarsTypeHandler(DbTypeHandler[polars.DataFrame]):
         if table_slice.partition_dimensions and len(context.asset_partition_keys) == 0:
             return polars.DataFrame()
 
-        iceberg_table = connection.catalog.load_table(f"{table_slice.schema}.{table_slice.table}")
+        iceberg_table = connection.catalog.load_table(self.table_name(context, table_slice))
 
         if table_slice.partition_dimensions and len(table_slice.partition_dimensions) > 0:
             raise NotImplementedError
