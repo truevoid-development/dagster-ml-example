@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-hdfs
+data:
+  core-site.xml: |-
+    <configuration>
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://namenode:8020</value>
+      </property>
+    </configuration>
