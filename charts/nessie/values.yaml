@@ -1,4 +1,9 @@
 nessie:
+  image:
+    repository: localhost:32531/nessie-unstable
+    tag: latest
+    pullPolicy: Always
+
   nodeSelector:
     kubernetes.io/hostname: node-dedicated-0
 
@@ -17,18 +22,28 @@ nessie:
       defaultWarehouse: lakehouse
       warehouses:
       - name: lakehouse
-        location: s3a://storage/lakehouse
+        location: hdfs:///lakehouse
 
-    storage:
-      s3:
-        defaultOptions:
-          region: euwest
-          endpoint: http://minio:9000
-          pathStyleAccess: true
-          accessKeySecret:
-            name: nessie-creds
-            awsAccessKeyId: AWS_ACCESS_KEY_ID
-            awsSecretAccessKey: AWS_SECRET_ACCESS_KEY
+  advancedConfig:
+    quarkus:
+      jaxb:
+        enable: true
+    nessie:
+      catalog:
+        service:
+          hdfs:
+            resources-config: /opt/hadoop/conf/core-site.xml
+
+  extraVolumes:
+  - name: hdfs-config
+    configMap:
+      name: nessie-hdfs
+      optional: false
+
+  extraVolumeMounts:
+  - mountPath: /opt/hadoop/conf
+    name: hdfs-config
+    readOnly: true
 
 postgresql:
   global:

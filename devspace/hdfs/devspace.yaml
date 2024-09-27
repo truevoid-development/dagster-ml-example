@@ -1,0 +1,77 @@
+version: v2beta1
+name: hdfs
+pipelines:
+  dev:
+    run: |-
+      run_dependency_pipelines --all
+      ensure_pull_secrets --all
+      build_images --all -t ${DEVSPACE_RANDOM}
+      create_deployments --all
+      start_dev --all
+
+deployments:
+  datanode:
+    helm:
+      values:
+        node_selector: &node_selector
+          kubernetes.io/hostname: node-dedicated-0
+        containers:
+        - image: docker.io/apache/hadoop:3
+          name: datanode
+          command: [/opt/starter.sh, hdfs, datanode]
+          env:
+          - name: ENSURE_NAMENODE_DIR
+            value: /tmp/hadoop-hadoop/dfs/name
+          - name: CORE-SITE.XML_fs.default.name
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_fs.defaultFS
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_dfs.permissions
+            value: "false"
+          - name: CORE-SITE.XML_dfs.namenode.rpc-address
+            value: namenode:8020
+          - name: CORE-SITE.XML_dfs.replication
+            value: "1"
+        service:
+          name: datanode
+          clusterIP: None
+          ports:
+          - containerPort: 9864
+            port: 9864
+
+  namenode:
+    helm:
+      values:
+        nodeSelector: *node_selector
+        containers:
+        - image: docker.io/apache/hadoop:3
+          name: namenode
+          command: [/opt/starter.sh, hdfs, namenode]
+          env:
+          - name: ENSURE_NAMENODE_DIR
+            value: /tmp/hadoop-hadoop/dfs/name
+          - name: CORE-SITE.XML_fs.default.name
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_fs.defaultFS
+            value: hdfs://namenode
+          - name: CORE-SITE.XML_dfs.permissions
+            value: "false"
+          - name: CORE-SITE.XML_dfs.namenode.rpc-address
+            value: 0.0.0.0:8020
+          - name: CORE-SITE.XML_dfs.replication
+            value: "1"
+        service:
+          name: namenode
+          clusterIP: None
+          ports:
+          - containerPort: 9870
+            port: 9870
+          - containerPort: 8020
+            port: 8020
+
+dev:
+  hdfs:
+    labelSelector:
+      app.kubernetes.io/component: namenode
+    ports:
+    - port: "9870"

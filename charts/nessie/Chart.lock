@@ -1,9 +1,9 @@
 dependencies:
 - name: nessie
   repository: https://charts.projectnessie.org
-  version: 0.94.3
+  version: 0.96.1
 - name: postgresql
   repository: https://charts.bitnami.com/bitnami
-  version: 15.5.20
-digest: sha256:1ed0ad290764d39e41ab425a3cc5d7bbad178a8a5c6f40301f2853fbb52c695c
-generated: "2024-07-30T11:48:34.192868463+02:00"
+  version: 15.5.31
+digest: sha256:e38d14005a8e11f8e2c0c5ed32e20db9db074e2bb5005a847b62d4089c01f3e3
+generated: "2024-09-15T18:54:40.283657598+02:00"

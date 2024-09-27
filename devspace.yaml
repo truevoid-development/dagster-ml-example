@@ -4,14 +4,17 @@ name: devspace-iceberg
 pipelines:
   dev:
     run: |-
-      run_dependency_pipelines --all
-      build_images --all -t ${DEVSPACE_RANDOM}
-      create_deployments --all
-      start_dev --all
+      run_dependency_pipelines --pipeline dev hdfs
+      # build_images --all -t ${DEVSPACE_RANDOM}
+      create_deployments nessie trino minio
+      # start_dev --all
+      start_dev trino
 
 dependencies:
   dagster:
     path: python-hdfs
+  hdfs:
+    path: devspace/hdfs
 
 deployments:
   minio:
@@ -42,8 +45,10 @@ deployments:
         name: trino
         repo: https://trinodb.github.io/charts/
       values:
+        server:
+          workers: 1
         image:
-          tag: "452"
+          tag: "457"
         additionalConfigProperties:
         - http-server.process-forwarded=true
         coordinator:
@@ -63,6 +68,18 @@ deployments:
             s3.aws-access-key=admin
             s3.aws-secret-key=miniopass
             s3.path-style-access=true
+          iceberg-hdfs: |-
+            connector.name=iceberg
+            iceberg.catalog.type=rest
+            iceberg.rest-catalog.uri=http://nessie:19120/iceberg
+            iceberg.rest-catalog.prefix=main
+            iceberg.rest-catalog.warehouse=lakehouse
+            connector.name=iceberg
+            iceberg.catalog.type=rest
+            fs.hadoop.enabled=true
+            iceberg.remove_orphan_files.min-retention=1h
+            iceberg.expire_snapshots.min-retention=1h
+            iceberg.rest-catalog.prefix=main
 
   mlflow:
     helm:
@@ -132,7 +149,7 @@ commands:
   trino-cli: |-
     kubectl run -it --rm \
       --image=trinodb/trino:latest trino-cli -- \
-        trino http://admin@trino:8080 --catalog iceberg
+        trino http://admin@trino:8080 --catalog iceberg-hdfs
 
   python: |-
     devspace enter -c python -- bash -c ". /root/.bashrc && poetry run python main.py"
